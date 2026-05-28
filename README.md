@@ -1,4 +1,4 @@
-![WindScan](WindScan.png)
+![WindScan](Windscan.png)
 
 # WindScan — Maintenance prédictive d'éoliennes
 
