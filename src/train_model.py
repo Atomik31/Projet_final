@@ -1,101 +1,100 @@
+"""
+train_model.py — Pipeline de production (compatible dashboard)
+Features : 6 capteurs bruts uniquement
+"""
+
+import os
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.dummy import DummyClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import f1_score
-import joblib
+from mlflow.tracking import MlflowClient
+from mlflow.models.signature import infer_signature
+import mlflow
+import mlflow.sklearn
+from dotenv import load_dotenv
 
-# --- 1. CHARGEMENT ET PRÉPARATION DES DONNÉES ---
+load_dotenv()
+
+MLFLOW_TRACKING_URI = "https://atomik31-mlflow-cdsd.hf.space"
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+mlflow.set_experiment("windscan-production")
+
+# --- 1. CHARGEMENT ET PRÉPARATION ---
 print(">>> Chargement des données...")
 df = pd.read_csv('../data/raw/wind_turbine_maintenance_data.csv')
+df = df[df['Turbine_ID'] == 1].reset_index(drop=True)
 
-# Création d'un index temporel simulé pour l'exercice
-dates = pd.date_range(start='2022-01-01', periods=len(df)//2, freq='H')
-df.loc[df['Turbine_ID'] == 1, 'Timestamp'] = dates
-df.loc[df['Turbine_ID'] == 2, 'Timestamp'] = dates
-df = df.sort_values(by=['Turbine_ID', 'Timestamp'])
+FEATURES = ['Rotor_Speed_RPM', 'Wind_Speed_mps', 'Power_Output_kW',
+            'Gearbox_Oil_Temp_C', 'Generator_Bearing_Temp_C', 'Vibration_Level_mmps']
+TARGET = 'Maintenance_Label'
 
-# --- 2. FEATURE ENGINEERING (Pour les modèles avancés) ---
-print(">>> Génération des Features Temporelles...")
-df_eng = df.copy()
-cols_cibles = ['Vibration_Level_mmps', 'Gearbox_Oil_Temp_C', 'Generator_Bearing_Temp_C']
+X = df[FEATURES]
+y = df[TARGET]
 
-for col in cols_cibles:
-    # Lags (Passé immédiat)
-    df_eng[f'{col}_Lag1'] = df_eng.groupby('Turbine_ID')[col].shift(1)
-    df_eng[f'{col}_Lag2'] = df_eng.groupby('Turbine_ID')[col].shift(2)
-    # Rolling Stats (Tendances et Volatilité)
-    df_eng[f'{col}_Mean_6h'] = df_eng.groupby('Turbine_ID')[col].transform(lambda x: x.rolling(6).mean())
-    df_eng[f'{col}_Std_6h'] = df_eng.groupby('Turbine_ID')[col].transform(lambda x: x.rolling(6).std())
-    df_eng[f'{col}_Mean_24h'] = df_eng.groupby('Turbine_ID')[col].transform(lambda x: x.rolling(24).mean())
+split_idx  = int(len(X) * 0.80)
+X_train    = X.iloc[:split_idx]
+X_test     = X.iloc[split_idx:]
+y_train    = y.iloc[:split_idx]
+y_test     = y.iloc[split_idx:]
 
-# Nettoyage des NaN
-df_eng = df_eng.dropna().reset_index(drop=True)
-
-# Pour la baseline, on prend les mêmes lignes (alignement)
-df_raw = df.loc[df_eng.index].reset_index(drop=True)
-
-# --- 3. DÉFINITION DU SPLIT CHRONOLOGIQUE ---
-split_idx = int(len(df_eng) * 0.80)
-
-# Jeux de données "pour rendre plus Intelligents" (Avec features)
-X_train_eng = df_eng.iloc[:split_idx].drop(['Turbine_ID', 'Timestamp', 'Maintenance_Label'], axis=1)
-y_train = df_eng.iloc[:split_idx]['Maintenance_Label']
-X_test_eng = df_eng.iloc[split_idx:].drop(['Turbine_ID', 'Timestamp', 'Maintenance_Label'], axis=1)
-y_test = df_eng.iloc[split_idx:]['Maintenance_Label']
-
-# Jeux de données "Bruts" (Pour la baseline)
-raw_features = ['Rotor_Speed_RPM', 'Wind_Speed_mps', 'Power_Output_kW', 'Gearbox_Oil_Temp_C', 
-                'Generator_Bearing_Temp_C', 'Vibration_Level_mmps', 'Ambient_Temp_C', 'Humidity_pct']
-X_train_raw = df_raw.iloc[:split_idx][raw_features]
-X_test_raw = df_raw.iloc[split_idx:][raw_features]
-
-# --- 4. LE TOURNOI DES MODÈLES ---
-
-# A) BASELINE (Reg Log sur données brutes)
-print("\n>>> 1. Entraînement Baseline (LogReg Simple)...")
-model_baseline = Pipeline([
-    ('scaler', StandardScaler()),
-    ('logreg', LogisticRegression(class_weight='balanced', random_state=42))
+# Preprocesseur commun
+preprocessor = ColumnTransformer([
+    ('scaler', Pipeline([
+        ('imputer', SimpleImputer(strategy='mean')),
+        ('std',     StandardScaler())
+    ]), FEATURES)
 ])
-model_baseline.fit(X_train_raw, y_train)
-f1_baseline = f1_score(y_test, model_baseline.predict(X_test_raw), average='weighted')
 
-# B) CHALLENGER (Lasso sur Features Temporelles)
-print(">>> 2. Entraînement Challenger (Lasso + Features Temporelles)...")
-model_lasso = Pipeline([
-    ('scaler', StandardScaler()),
-    ('logreg', LogisticRegression(penalty='l1', solver='liblinear', C=0.5, class_weight='balanced', random_state=42))
-])
-model_lasso.fit(X_train_eng, y_train)
-f1_lasso = f1_score(y_test, model_lasso.predict(X_test_eng), average='weighted')
+# --- 2. TOURNOI DES MODÈLES ---
+best_run = {"name": None, "f1": -1, "pipeline": None}
 
-# C) CHAMPION (Random Forest sur Features Temporelles)
-print(">>> 3. Entraînement Champion (Random Forest + Features Temporelles)...")
-model_champion = RandomForestClassifier(n_estimators=100, max_depth=15, class_weight='balanced', random_state=42, n_jobs=-1)
-model_champion.fit(X_train_eng, y_train)
-f1_champion = f1_score(y_test, model_champion.predict(X_test_eng), average='weighted')
+models = {
+    "Baseline_DummyClassifier": DummyClassifier(strategy="most_frequent", random_state=42),
+    "LogisticRegression":       LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42),
+    "RandomForest":             RandomForestClassifier(n_estimators=100, max_depth=10,
+                                                       class_weight='balanced', random_state=42),
+}
 
-# --- 5. RÉSULTATS COMPARATIFS ---
-print("\n" + "="*45)
-print("   🏆 ÉVOLUTION DU PROJET (F1-SCORE WEIGHTED)")
-print("="*45)
-print(f"1. BASELINE (Naïve)       : {f1_baseline:.2%}")
-print(f"   -> Approche : Données brutes, Modèle simple")
-print("-" * 45)
-print(f"2. CHALLENGER (Ingénierie): {f1_lasso:.2%}")
-print(f"   -> Approche : Features Temporelles, Lasso")
-print(f"   -> Gain vs Baseline : {f1_lasso - f1_baseline:+.2%}")
-print("-" * 45)
-print(f"3. CHAMPION (Non-Linéaire): {f1_champion:.2%}")
-print(f"   -> Approche : Random Forest, Interactions")
-print(f"   -> Gain vs Challenger : {f1_champion - f1_lasso:+.2%}")
-print("="*45)
+for name, estimator in models.items():
+    pipe = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
+    pipe.fit(X_train, y_train)
+    f1 = f1_score(y_test, pipe.predict(X_test), average="macro", zero_division=0)
 
-# --- 6. SAUVEGARDE DU VAINQUEUR ---
-# Car le Random Forest gérera mieux les cas bizarres (non-linéaires) non vus dans le test.
-print(f"\n>>> Sauvegarde du modèle CHAMPION (Random Forest)...")
-joblib.dump(model_champion, '../models/gtc_model_advanced.pkl')
-print("Modèle sauvegardé dans models/gtc_model_advanced.pkl")
+    with mlflow.start_run(run_name=name):
+        mlflow.log_metric("f1_macro", f1)
+        mlflow.sklearn.log_model(pipe, "model")
+
+    print(f"  {name:<35} F1 macro : {f1:.4f}")
+
+    if f1 > best_run["f1"]:
+        best_run = {"name": name, "f1": f1, "pipeline": pipe}
+
+# --- 3. REGISTRATION DU MEILLEUR MODÈLE ---
+print(f"\n>>> Meilleur modèle : {best_run['name']} (F1={best_run['f1']:.4f})")
+print(">>> Enregistrement dans MLflow Model Registry...")
+
+signature = infer_signature(X_train, best_run["pipeline"].predict(X_train))
+
+with mlflow.start_run(run_name="production_model"):
+    mlflow.log_metric("f1_macro", best_run["f1"])
+    mlflow.sklearn.log_model(
+        best_run["pipeline"],
+        name="windscan_production",
+        registered_model_name="WindTurbine_MaintenancePredictor",
+        signature=signature,
+        input_example=X_train.iloc[:3]
+    )
+
+client  = MlflowClient(MLFLOW_TRACKING_URI)
+versions = client.get_registered_model("WindTurbine_MaintenancePredictor").latest_versions
+latest   = versions[-1].version
+client.set_registered_model_alias("WindTurbine_MaintenancePredictor", "production", latest)
+
+print(f"Modèle version {latest} promu en 'production'")

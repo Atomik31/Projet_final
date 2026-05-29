@@ -10,6 +10,8 @@ import numpy as np
 from datetime import datetime
 import joblib
 import boto3
+import mlflow
+import mlflow.pyfunc
 import plotly.graph_objects as go
 import plotly.express as px
 from pathlib import Path
@@ -75,18 +77,18 @@ def load_data(dataset_name):
         st.error(f"❌ Dataset not found in S3 or locally: {dataset_name}")
         st.stop()
 
-@st.cache_resource(show_spinner="Loading model from S3...")
-def load_model(model_name):
-    """Load .pkl model from S3, fallback to local."""
+@st.cache_resource(show_spinner="Loading model from MLflow...")
+def load_model(model_name=None):
+    """Load pipeline (preprocessor + model) from MLflow Model Registry."""
     try:
-        s3  = _s3_client()
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=S3_MODEL_KEY + model_name)
-        return joblib.load(io.BytesIO(obj["Body"].read()))
-    except Exception:
-        local = ROOT_DIR / "models" / model_name
+        mlflow.set_tracking_uri("https://atomik31-mlflow-cdsd.hf.space")
+        return mlflow.pyfunc.load_model("models:/WindTurbine_MaintenancePredictor@production")
+    except Exception as e:
+        st.warning(f"MLflow unavailable ({e}), falling back to local model.")
+        local = ROOT_DIR / "models" / "best_model.pkl"
         if local.exists():
             return joblib.load(local)
-        st.error(f"❌ Model not found in S3 or locally: {model_name}")
+        st.error("❌ Model not found in MLflow or locally.")
         st.stop()
 
 @st.cache_resource(show_spinner="Loading preprocessor from S3...")
@@ -108,7 +110,7 @@ with st.sidebar:
     st.header("⚙️ Configuration")
 
     st.subheader("Model & Data")
-    st.info(f"🤖 Model: `{MODEL_FILE}`")
+    st.info("🤖 Model: `WindTurbine_MaintenancePredictor@production` (MLflow)")
     st.info(f"📂 Dataset: `{DATASET_FILE}`")
 
     st.divider()
