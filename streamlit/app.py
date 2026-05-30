@@ -10,6 +10,7 @@ import numpy as np
 from datetime import datetime
 import joblib
 import boto3
+import psycopg2
 import mlflow
 import mlflow.pyfunc
 import plotly.graph_objects as go
@@ -57,25 +58,59 @@ def _s3_client():
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     )
 
-@st.cache_data(ttl=300, show_spinner="Loading dataset from S3...")
-def load_data(dataset_name):
-    """Load CSV from S3, fallback to local."""
+def _pg_conn():
+    return psycopg2.connect(
+        host=os.getenv("PGHOST"),
+        dbname=os.getenv("PGDATABASE", "neondb"),
+        user=os.getenv("PGUSER", "neondb_owner"),
+        password=os.getenv("PGPASSWORD"),
+        sslmode=os.getenv("PGSSLMODE", "require")
+    )
+
+@st.cache_data(ttl=300, show_spinner="Chargement depuis Neon DB...")
+def load_data(dataset_name=None):
+    """Charge les données capteurs depuis Neon DB, fallback S3 puis local."""
+    # Priorité 1 : Neon DB
+    try:
+        conn = _pg_conn()
+        df = pd.read_sql("""
+            SELECT row_index,
+                   rotor_speed_rpm       AS "Rotor_Speed_RPM",
+                   wind_speed_mps        AS "Wind_Speed_mps",
+                   power_output_kw       AS "Power_Output_kW",
+                   gearbox_oil_temp_c    AS "Gearbox_Oil_Temp_C",
+                   generator_bearing_temp_c AS "Generator_Bearing_Temp_C",
+                   vibration_level_mmps  AS "Vibration_Level_mmps",
+                   maintenance_label     AS "Maintenance_Label"
+            FROM windscan_sensors
+            ORDER BY row_index ASC
+        """, conn)
+        conn.close()
+        return df
+    except Exception as e:
+        st.warning(f"Neon DB indisponible ({e}), fallback S3...")
+
+    # Priorité 2 : S3
     try:
         s3  = _s3_client()
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=S3_DATA_KEY + dataset_name)
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=S3_DATA_KEY + DATASET_FILE)
         df  = pd.read_csv(io.BytesIO(obj["Body"].read()))
         if "Turbine_ID" in df.columns:
             df = df[df["Turbine_ID"] == 1].reset_index(drop=True)
         return df
     except Exception:
-        local = ROOT_DIR / "data" / "processed" / dataset_name
-        if local.exists():
-            df = pd.read_csv(local)
-            if "Turbine_ID" in df.columns:
-                df = df[df["Turbine_ID"] == 1].reset_index(drop=True)
-            return df
-        st.error(f"❌ Dataset not found in S3 or locally: {dataset_name}")
-        st.stop()
+        pass
+
+    # Priorité 3 : local
+    local = ROOT_DIR / "data" / "processed" / DATASET_FILE
+    if local.exists():
+        df = pd.read_csv(local)
+        if "Turbine_ID" in df.columns:
+            df = df[df["Turbine_ID"] == 1].reset_index(drop=True)
+        return df
+
+    st.error("❌ Données introuvables (Neon DB, S3 et local)")
+    st.stop()
 
 @st.cache_resource(show_spinner="Loading model from MLflow...")
 def load_model(model_name=None):

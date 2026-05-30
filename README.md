@@ -36,9 +36,13 @@ Comparaison de 7 configurations avec tracking MLflow :
 
 Métrique cible : **F1-Score macro** — toutes les classes comptent également, y compris les pannes rares.
 
+**Pipeline ETL**
+
+Les données capteurs sont extraites depuis S3 (`windscan`), validées (plages cohérentes, schéma complet) puis chargées dans une base **Neon DB** (PostgreSQL). Le dashboard interroge directement la base SQL pour servir les prédictions.
+
 **Dashboard**
 
-Interface Streamlit de monitoring en temps réel : prédiction du label de maintenance à partir des données capteurs, visualisation des tendances et alertes.
+Interface Streamlit de monitoring en temps réel : prédiction du label de maintenance à partir des données capteurs, visualisation des tendances et alertes. Les données sont chargées depuis Neon DB avec fallback S3.
 
 ---
 
@@ -65,8 +69,8 @@ Le Random Forest est le meilleur modèle malgré un overfitting notable, dû au 
 
 ## Stack
 
-- Python — Scikit-learn, Pandas, Plotly, Streamlit, MLflow, Boto3
-- Stockage : AWS S3 (bucket `windscan`)
+- Python — Scikit-learn, Pandas, Plotly, Streamlit, MLflow, Boto3, psycopg2
+- Stockage : AWS S3 (bucket `windscan`) → ETL → Neon DB (PostgreSQL)
 - Données : 35 040 observations × 8 capteurs, 2 turbines
 
 ---
@@ -92,10 +96,13 @@ Projet-final-fullstack/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── src/
-│   ├── train_model.py              # Script d'entraînement
+│   ├── train_model.py              # Script d'entraînement production
 │   ├── train_model_engineering.py  # Variante avec feature engineering
-│   ├── dashboard.py                # Utilitaires dashboard
-│   └── run.py
+│   ├── etl_to_neon.py              # ETL S3 → Neon DB
+│   ├── export_figures.py           # Script d'export des figures
+│   ├── dashboard.py
+│   ├── run.py
+│   └── test.py
 ├── reports/
 │   └── figures/
 │       ├── 01_distribution_turbines_labels.png
