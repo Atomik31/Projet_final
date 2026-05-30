@@ -59,7 +59,7 @@ Le Random Forest est le meilleur modèle malgré un overfitting notable, dû au 
 | Service | URL |
 |---------|-----|
 | Dashboard Streamlit | https://atomik31-dashboard-windscan.hf.space |
-| MLflow Tracking | https://atomik31-mlflow.hf.space |
+| MLflow Tracking | https://atomik31-mlflow-cdsd.hf.space |
 
 ---
 
@@ -80,7 +80,8 @@ Projet-final-fullstack/
 │   └── processed/                  # Données nettoyées
 ├── models/
 │   ├── best_model.pkl              # Modèle retenu (Random Forest)
-│   └── preprocessor.pkl            # Pipeline de preprocessing
+│   ├── preprocessor.pkl            # Pipeline de preprocessing
+│   └── old_models/                 # Versions précédentes
 ├── notebook/
 │   ├── EDA.ipynb                   # Analyse exploratoire
 │   ├── Train.ipynb                 # Entraînement + tracking MLflow
@@ -92,9 +93,17 @@ Projet-final-fullstack/
 │   └── Dockerfile
 ├── src/
 │   ├── train_model.py              # Script d'entraînement
-│   └── dashboard.py                # Utilitaires dashboard
+│   ├── train_model_engineering.py  # Variante avec feature engineering
+│   ├── dashboard.py                # Utilitaires dashboard
+│   └── run.py
 ├── reports/
-│   └── figures/                    # Graphiques exportés
+│   └── figures/
+│       ├── 01_distribution_turbines_labels.png
+│       ├── 02_labels_par_turbine.png
+│       ├── 03_correlation_matrices.png
+│       ├── 04_boxplots_capteurs_par_label.png
+│       └── 05_kde_capteurs_critiques.png
+├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
