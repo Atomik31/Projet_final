@@ -1,6 +1,6 @@
 ![WindScan](Windscan.png)
 
-# WindScan — Maintenance prédictive d'éoliennes
+# WindScan - Maintenance prédictive d'éoliennes
 
 Projet final réalisé dans le cadre du bloc 6 de la certification CDSD (Jedha).
 
@@ -10,9 +10,9 @@ Projet final réalisé dans le cadre du bloc 6 de la certification CDSD (Jedha).
 
 Une société d'exploitation d'éoliennes veut anticiper les besoins de maintenance avant que les pannes surviennent. À partir des données de 8 capteurs physiques (vitesse rotor, puissance, température boîte de vitesse, vibrations...) relevées toutes les heures sur 2 turbines, l'objectif est de prédire le type de maintenance à venir :
 
-- **0** — Pas de maintenance requise
-- **1** — Maintenance mineure
-- **2** — Maintenance majeure
+- **0** - Pas de maintenance requise
+- **1** - Maintenance mineure
+- **2** - Maintenance majeure
 
 ---
 
@@ -34,7 +34,7 @@ Comparaison de 7 configurations avec tracking MLflow :
 - Lasso (LogReg L1)
 - Random Forest (plusieurs configs manuelles + GridSearch)
 
-Métrique cible : **F1-Score macro** — toutes les classes comptent également, y compris les pannes rares.
+Métrique cible : **F1-Score macro** - toutes les classes comptent également, y compris les pannes rares.
 
 **Pipeline ETL**
 
@@ -69,7 +69,7 @@ Le Random Forest est le meilleur modèle malgré un overfitting notable, dû au 
 
 ## Stack
 
-- Python — Scikit-learn, Pandas, Plotly, Streamlit, MLflow, Boto3, psycopg2
+- Python - Scikit-learn, Pandas, Plotly, Streamlit, MLflow, Boto3, psycopg2
 - Stockage : AWS S3 (bucket `windscan`) → ETL → Neon DB (PostgreSQL)
 - Données : 35 040 observations × 8 capteurs, 2 turbines
 
@@ -117,4 +117,4 @@ Projet-final-fullstack/
 
 ---
 
-Julien CHARLIER — [(Github : Atomik31)](https://github.com/Atomik31)
+Julien CHARLIER - [(Github : Atomik31)](https://github.com/Atomik31)
